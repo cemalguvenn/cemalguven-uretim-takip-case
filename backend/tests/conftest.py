@@ -46,3 +46,28 @@ def make_record():
         return ProductionRecord(**defaults)
 
     return _make
+
+
+@pytest_asyncio.fixture
+async def client(session):
+    """httpx AsyncClient bound to the app, with get_session overridden to the
+    in-memory test session. The CSV is imported + validated once up front."""
+    from httpx import ASGITransport, AsyncClient
+
+    from database import get_session
+    from main import app
+    from services.import_service import import_csv
+    from validation.engine import validate_batch
+
+    raw = open("../data/production_data.csv", "rb").read()
+    result = await import_csv(session, "production_data.csv", raw)
+    await validate_batch(session, result.batch.id)
+
+    async def _override():
+        yield session
+
+    app.dependency_overrides[get_session] = _override
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+    app.dependency_overrides.clear()

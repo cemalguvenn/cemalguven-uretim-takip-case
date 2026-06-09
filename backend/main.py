@@ -42,29 +42,23 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-# Routers are registered as each step lands.
-def _register_routers() -> None:
-    from api import (  # noqa: WPS433  (local import keeps startup order explicit)
-        import_routes,
-        mock_api,
-        record_routes,
-        report_routes,
-        settings_routes,
-        sync_routes,
-        validation_routes,
-    )
+# Routers are registered as each build step lands. Each is mounted independently
+# so a module that doesn't exist yet doesn't prevent the others from loading.
+_ROUTER_MODULES = [
+    "import_routes",
+    "record_routes",
+    "validation_routes",
+    "report_routes",
+    "sync_routes",
+    "settings_routes",
+    "mock_api",
+]
 
-    app.include_router(import_routes.router)
-    app.include_router(record_routes.router)
-    app.include_router(validation_routes.router)
-    app.include_router(report_routes.router)
-    app.include_router(sync_routes.router)
-    app.include_router(settings_routes.router)
-    app.include_router(mock_api.router)
+import importlib  # noqa: E402
 
-
-try:
-    _register_routers()
-except ImportError:
-    # Routers not yet implemented in early build steps — health check still works.
-    pass
+for _name in _ROUTER_MODULES:
+    try:
+        _module = importlib.import_module(f"api.{_name}")
+        app.include_router(_module.router)
+    except ModuleNotFoundError:
+        pass  # not implemented yet in this build step

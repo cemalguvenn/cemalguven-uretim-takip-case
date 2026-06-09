@@ -9,7 +9,6 @@ single-record re-validation after a correction.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -156,6 +155,5 @@ async def revalidate_record(
             record.status = "corrected"
         else:
             record.status = base
-    record.updated_at = datetime.utcnow()
-    await session.commit()
+    await session.commit()  # updated_at refreshed by the column's onupdate
     return record.status
