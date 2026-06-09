@@ -17,6 +17,8 @@ import {
   Tooltip,
 } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
+import { useSearchParams } from "react-router-dom";
+import dayjs from "dayjs";
 
 import api from "../api/client.js";
 import PageHeader from "../components/PageHeader.jsx";
@@ -51,10 +53,23 @@ const STATUS_OPTIONS = Object.entries(STATUS_META)
 
 export default function Records() {
   const { message } = App.useApp();
-  const [filters, setFilters] = useState({
-    vardiya: [], istasyon: [], status: [], stok: "",
-    oee: [0, 200], onlyProblematic: false, hideErrors: false, includeHidden: false,
-    range: null,
+  const [searchParams] = useSearchParams();
+  // Seed filters from URL query params (Dashboard drill-down lands here).
+  const [filters, setFilters] = useState(() => {
+    const csv = (k) => (searchParams.get(k) ? searchParams.get(k).split(",") : []);
+    const s = searchParams.get("tarih_start");
+    const e = searchParams.get("tarih_end");
+    return {
+      vardiya: csv("vardiya").map(Number).filter(Boolean),
+      istasyon: csv("istasyon"),
+      status: csv("status"),
+      stok: searchParams.get("stok") || "",
+      oee: [0, 200],
+      onlyProblematic: false,
+      hideErrors: false,
+      includeHidden: false,
+      range: s && e ? [dayjs(s), dayjs(e)] : null,
+    };
   });
   const [data, setData] = useState({ items: [], total: 0 });
   const [loading, setLoading] = useState(false);
@@ -195,11 +210,12 @@ export default function Records() {
       <Card style={{ marginBottom: 16 }}>
         <Row gutter={[12, 12]} align="middle">
           <Col xs={24} md={8}>
-            <RangePicker style={{ width: "100%" }} onChange={(r) => setF({ range: r })} />
+            <RangePicker style={{ width: "100%" }} value={filters.range} onChange={(r) => setF({ range: r })} />
           </Col>
           <Col xs={12} md={4}>
             <Select
               mode="multiple" allowClear placeholder="Vardiya" style={{ width: "100%" }}
+              value={filters.vardiya}
               options={[1, 2, 3].map((v) => ({ value: v, label: `Vardiya ${v}` }))}
               onChange={(v) => setF({ vardiya: v })}
             />
@@ -207,6 +223,7 @@ export default function Records() {
           <Col xs={12} md={6}>
             <Select
               mode="multiple" allowClear placeholder="İstasyon" style={{ width: "100%" }}
+              value={filters.istasyon}
               options={STATIONS.map((s) => ({ value: s, label: s }))}
               onChange={(v) => setF({ istasyon: v })}
             />
@@ -214,6 +231,7 @@ export default function Records() {
           <Col xs={24} md={6}>
             <Select
               mode="multiple" allowClear placeholder="Durum" style={{ width: "100%" }}
+              value={filters.status}
               options={STATUS_OPTIONS}
               onChange={(v) => setF({ status: v })}
             />

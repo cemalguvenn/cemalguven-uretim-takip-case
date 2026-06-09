@@ -33,6 +33,7 @@ import {
   YAxis,
 } from "recharts";
 import dayjs from "dayjs";
+import { useNavigate } from "react-router-dom";
 
 import api from "../api/client.js";
 import PageHeader from "../components/PageHeader.jsx";
@@ -49,6 +50,7 @@ const ChartCard = ({ title, extra, children }) => (
 );
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [range, setRange] = useState(null);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ summary: null, trend: [], shifts: [], stations: [] });
@@ -190,7 +192,12 @@ export default function Dashboard() {
             {qualityData.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={qualityData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={95} paddingAngle={2} animationDuration={700}>
+                  <Pie
+                    data={qualityData} dataKey="value" nameKey="name"
+                    innerRadius={60} outerRadius={95} paddingAngle={2} animationDuration={700}
+                    onClick={(d) => d?.key && navigate(`/records?status=${d.key}`)}
+                    style={{ cursor: "pointer" }}
+                  >
                     {qualityData.map((d) => (
                       <Cell key={d.key} fill={QUALITY_HEX[d.key]} />
                     ))}
@@ -216,7 +223,12 @@ export default function Dashboard() {
                   <YAxis yAxisId="r" orientation="right" stroke={CHART_COLORS.axis} tick={{ fontSize: 12 }} />
                   <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar yAxisId="l" name="OEE" dataKey="OEE" fill={CHART_COLORS.primary} radius={[6, 6, 0, 0]} maxBarSize={48} animationDuration={700} />
+                  <Bar
+                    yAxisId="l" name="OEE" dataKey="OEE" fill={CHART_COLORS.primary}
+                    radius={[6, 6, 0, 0]} maxBarSize={48} animationDuration={700}
+                    onClick={(d) => d?.name && navigate(`/records?vardiya=${String(d.name).replace("V", "")}`)}
+                    style={{ cursor: "pointer" }}
+                  />
                   <Bar yAxisId="r" name="Üretim" dataKey="Üretim" fill={CHART_COLORS.cyan} radius={[6, 6, 0, 0]} maxBarSize={48} animationDuration={700} />
                 </BarChart>
               </ResponsiveContainer>
@@ -235,7 +247,11 @@ export default function Dashboard() {
                   <XAxis type="number" stroke={CHART_COLORS.axis} tick={{ fontSize: 12 }} domain={[0, 100]} />
                   <YAxis type="category" dataKey="name" stroke={CHART_COLORS.axis} tick={{ fontSize: 12 }} width={92} />
                   <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
-                  <Bar name="OEE" dataKey="OEE" radius={[0, 6, 6, 0]} maxBarSize={28} animationDuration={700}>
+                  <Bar
+                    name="OEE" dataKey="OEE" radius={[0, 6, 6, 0]} maxBarSize={28} animationDuration={700}
+                    onClick={(d) => d?.name && navigate(`/records?istasyon=${encodeURIComponent(d.name)}`)}
+                    style={{ cursor: "pointer" }}
+                  >
                     {stationData.map((d, i) => (
                       <Cell key={i} fill={oeeColor(d.OEE)} />
                     ))}
