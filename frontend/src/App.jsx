@@ -4,6 +4,7 @@ import Dashboard from "./pages/Dashboard.jsx";
 import ImportData from "./pages/ImportData.jsx";
 import Records from "./pages/Records.jsx";
 import ValidationReport from "./pages/ValidationReport.jsx";
+import LossAnalysis from "./pages/LossAnalysis.jsx";
 import SyncManager from "./pages/SyncManager.jsx";
 import Settings from "./pages/Settings.jsx";
 
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/import" element={<ImportData />} />
         <Route path="/records" element={<Records />} />
         <Route path="/validation" element={<ValidationReport />} />
+        <Route path="/loss" element={<LossAnalysis />} />
         <Route path="/sync" element={<SyncManager />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -7,7 +7,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_session
-from schemas import QualityDistOut, ShiftStat, StationStat, SummaryOut, TrendPoint
+from schemas import (
+    LossAnalysisOut,
+    QualityDistOut,
+    ShiftStat,
+    StationStat,
+    SummaryOut,
+    TrendPoint,
+)
 from services import report_service
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -41,3 +48,9 @@ async def station_ranking(start: date | None = None, end: date | None = None,
 async def quality_distribution(start: date | None = None, end: date | None = None,
                                session: AsyncSession = Depends(get_session)):
     return await report_service.quality_distribution(session, start, end)
+
+
+@router.get("/loss-analysis", response_model=LossAnalysisOut)
+async def loss_analysis(start: date | None = None, end: date | None = None,
+                        session: AsyncSession = Depends(get_session)):
+    return await report_service.loss_analysis(session, start, end)

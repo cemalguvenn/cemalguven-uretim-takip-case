@@ -106,6 +106,55 @@ async def station_ranking(session: AsyncSession, start=None, end=None) -> list[S
     return sorted(stats, key=lambda s: (s.avg_oee or -1), reverse=True)
 
 
+def _weighted(rows, attr: str) -> float | None:
+    """Duration-weighted average of a metric attribute (by Çalışma Süresi)."""
+    num = sum(getattr(r, attr) * r.calisma_suresi for r in rows
+              if getattr(r, attr) is not None and r.calisma_suresi)
+    den = sum(r.calisma_suresi for r in rows
+              if getattr(r, attr) is not None and r.calisma_suresi)
+    return num / den if den else None
+
+
+def _clamp(v, lo=0.0, hi=100.0):
+    return None if v is None else max(lo, min(hi, v))
+
+
+def _loss_breakdown(rows) -> dict:
+    """OEE waterfall components. A/P/Q clamped to 100% (P>100 rows are a known
+    data artifact); losses are the classic availability/performance/quality gaps."""
+    a = _clamp(_weighted(rows, "availability")) or 0.0
+    p = _clamp(_weighted(rows, "performance")) or 0.0
+    q = _clamp(_weighted(rows, "quality")) or 0.0
+    after_avail = a
+    after_perf = a * p / 100
+    oee = a * p * q / 10000
+    return {
+        "availability": round(a, 2), "performance": round(p, 2), "quality": round(q, 2),
+        "oee": round(oee, 2),
+        "availability_loss": round(100 - a, 2),
+        "performance_loss": round(after_avail - after_perf, 2),
+        "quality_loss": round(after_perf - oee, 2),
+    }
+
+
+async def loss_analysis(session: AsyncSession, start=None, end=None) -> dict:
+    rows = await _fetch_countable(session, start, end)
+    base = _loss_breakdown(rows)
+    base["planned_stop_min"] = round(sum(r.planli_durus or 0 for r in rows), 1)
+    base["unplanned_stop_min"] = round(sum(r.plansiz_durus or 0 for r in rows), 1)
+    base["run_min"] = round(sum(r.calisma_suresi or 0 for r in rows), 1)
+
+    by_station: dict[str, list] = defaultdict(list)
+    for r in rows:
+        if r.is_istasyon_adi:
+            by_station[r.is_istasyon_adi].append(r)
+    base["stations"] = sorted(
+        [{"istasyon": st, **_loss_breakdown(grp)} for st, grp in by_station.items()],
+        key=lambda s: s["oee"], reverse=True,
+    )
+    return base
+
+
 async def quality_distribution(session: AsyncSession, start=None, end=None) -> QualityDistOut:
     rows = await _fetch_countable(session, start, end)
     total_prod = sum(r.uretilen_miktar or 0 for r in rows)

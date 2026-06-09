@@ -7,8 +7,11 @@ import {
   SafetyCertificateOutlined,
   CloudUploadOutlined,
   SettingOutlined,
+  FundOutlined,
 } from "@ant-design/icons";
 import { useLocation, useNavigate } from "react-router-dom";
+
+import AlertBell from "./AlertBell.jsx";
 
 const { Sider, Header, Content } = Layout;
 const { useBreakpoint } = Grid;
@@ -18,6 +21,7 @@ const ITEMS = [
   { key: "/import", icon: <UploadOutlined />, label: "Veri Yükle" },
   { key: "/records", icon: <TableOutlined />, label: "Kayıtlar" },
   { key: "/validation", icon: <SafetyCertificateOutlined />, label: "Validasyon" },
+  { key: "/loss", icon: <FundOutlined />, label: "Kayıp Analizi" },
   { key: "/sync", icon: <CloudUploadOutlined />, label: "API Gönderim" },
   { key: "/settings", icon: <SettingOutlined />, label: "Ayarlar" },
 ];
@@ -68,9 +72,10 @@ export default function AppLayout({ children }) {
           <h3 style={{ margin: 0, color: "#fff" }}>
             {TITLES[pathname] || "Üretim Performans Takip"}
           </h3>
-          <span style={{ marginLeft: "auto", color: "#6b7689", fontSize: 13 }}>
-            INJECTION EXTERIORS · MES
-          </span>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 16 }}>
+            <span style={{ color: "#6b7689", fontSize: 13 }}>INJECTION EXTERIORS · MES</span>
+            <AlertBell />
+          </div>
         </Header>
         <Content style={{ padding: 24, overflow: "auto" }}>{children}</Content>
       </Layout>
