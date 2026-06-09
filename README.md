@@ -38,7 +38,7 @@ yerleşik mock API varsayılanlarıyla çalışır.
 
 ## Ekran Görüntüleri
 
-> `docs/` altına eklenecek: Dashboard, Veri Yükle, Validasyon Raporu, API Gönderim.
+> `docs/` altına eklenecek: Dashboard, Veri Yükle, Validasyon Raporu, Kayıp Analizi, API Gönderim, Ayarlar.
 
 | Dashboard | Validasyon |
 |-----------|-----------|
@@ -48,7 +48,7 @@ yerleşik mock API varsayılanlarıyla çalışır.
 
 ## Tespit Edilen Veri Kalitesi Sorunları
 
-CSV'de **21+ farklı hata tipi** otomatik tespit edilir (toplam ~1.833 bulgu).
+CSV'de **23+ farklı hata tipi** otomatik tespit edilir (toplam ~1.880 bulgu).
 Tüm eşikler veritabanında saklanır ve **Ayarlar** sayfasından düzenlenebilir.
 
 | Kural | Seviye | Adet | Örnek / Açıklama |
@@ -61,6 +61,8 @@ Tüm eşikler veritabanında saklanır ve **Ayarlar** sayfasından düzenlenebil
 | `P_OUT_OF_RANGE` | warn/err | 37 | P>200 uyarı, >1000 hata |
 | `Q_FORMULA_MISMATCH` | error | 15 | Q ≠ (Üretilen−Hatalı)/Üretilen·100 |
 | `SYSTEMATIC_HIGH_P` | info | 14 | `ICA-2…Lower Bumper`+`IMM-4000-2`: tüm kayıtlarda P 4.000–348.500 (ideal çevrim süresi yanlış tanımlı) |
+| `STATISTICAL_OEE_OUTLIER` | warning | ~34 | Ürün×istasyon grubunda OEE, median±3·IQR dışında (bağlamsal/istatistiksel anomali) |
+| `PRODUCTION_RATE_OUTLIER` | info | ~48 | Ürün×istasyon grubunda üretim hızı (Üretilen/Çalışma) IQR dışında |
 | `SENTINEL_VALUE` | error | 8 | MES `-10` placeholder (rec 869/921/1811 vb.) |
 | `STOP_TIME_MISMATCH` | error | 8 | Duruş ≠ Planlı+Plansız |
 | `SENTINEL_STOP_PATTERN` | warning | 8 | Çalışma=350 & Duruş=250 MES varsayılan deseni |
@@ -114,19 +116,45 @@ shift                  = 1 | 2 | 3
 
 ---
 
+## Gelişmiş Özellikler
+
+- **Asenkron / arka plan içe aktarma (100K+):** Yükleme isteği batch'i oluşturup
+  anında döner; ağır içe aktarma + validasyon arka planda (toplu/bulk insert +
+  SQLite WAL) çalışır, arayüz bir ilerleme çubuğuyla `GET /api/import/batches/{id}`
+  durumunu yoklar (poll) ve bloklanmaz. 60.000 satır ~10s'de işlenir
+  (`scripts/generate_mock_data.py` ile üretilen `data/production_data_50k.csv`).
+- **İstatistiksel anomali tespiti:** Ürün×istasyon grubunda IQR tabanlı bağlamsal
+  aykırı değer kuralları (`STATISTICAL_OEE_OUTLIER`, `PRODUCTION_RATE_OUTLIER`) —
+  sabit eşiklerin kaçırdığı anomalileri yakalar; yalnızca tespit eder (otomatik
+  düzeltme yok), warning/info şiddetinde, Ayarlar'dan kapatılabilir.
+- **Kayıp Analizi (OEE Waterfall):** OEE'nin nerede kaybedildiğini gösteren
+  kullanılabilirlik/performans/kalite kayıp şelalesi + planlı/plansız duruş
+  dağılımı + istasyon bazlı kayıp tablosu (Six Big Losses'a doğru ilk adım).
+- **Otomatik gönderim (zamanlanmış):** APScheduler ile opt-in (varsayılan kapalı)
+  periyodik auto-sync — hazır gün/vardiyaları idempotent gönderir; "Şimdi Çalıştır"
+  butonu da var.
+- **Dashboard drill-down:** Grafikteki bir istasyon/vardiya/durum dilimine tıklayınca
+  Kayıtlar sayfası ilgili filtrelerle açılır (URL parametreleriyle).
+- **Uygulama içi uyarı merkezi:** Başlıktaki zil; başarısız gönderim, yüksek hata
+  oranlı batch ve sistemik anomali uyarılarını canlı listeler.
+
+---
+
 ## Mimari
 
 ```
 backend/                         FastAPI + SQLAlchemy(async) + aiosqlite
   validation/   engine.py        kural-kayıt motoru: kuralları DB'den okur,
                 rules.py          her kural bağımsız fonksiyon (Open/Closed)
-  services/     import, record, report, validation, sync, (export FE'de)
-  api/          ince router'lar (import/record/validation/report/sync/settings/mock)
-  models.py     6 tablo · seed.py  varsayılan kural kataloğu
+  services/     import, record, report, validation, sync, scheduler
+  api/          ince router'lar (import/record/validation/report/sync/settings/alerts/mock)
+  models.py     7 tablo · seed.py  varsayılan kural kataloğu
 frontend/                        React 18 + Vite + Ant Design 5 + Recharts
-  pages/        Dashboard, ImportData, Records, ValidationReport, SyncManager, Settings
-  components/   AppLayout, RecordDetailModal, ChartTooltip, ExportMenu, ...
-data/           production_data.csv
+  pages/        Dashboard, ImportData, Records, ValidationReport, LossAnalysis,
+                SyncManager, Settings
+  components/   AppLayout, RecordDetailModal, ChartTooltip, ExportMenu, AlertBell, ...
+data/           production_data.csv · production_data_50k.csv (60K, scale testi)
+scripts/        generate_mock_data.py (büyük veri jeneratörü)
 ```
 
 **Tasarım belkemiği (SOLID):**
@@ -138,9 +166,10 @@ data/           production_data.csv
    yalnızca request/response.
 3. **API-client stratejisi** — mock vs gerçek tamamen konfigürasyon.
 
-**Veritabanı (6 tablo):** `production_records` (orijinal satır JSON olarak
+**Veritabanı (7 tablo):** `production_records` (orijinal satır JSON olarak
 saklanır — data lineage), `validation_errors`, `validation_rules` (dinamik),
-`audit_logs`, `import_batches` (SHA-256 ile duplicate kontrol), `sync_logs`.
+`audit_logs`, `import_batches` (SHA-256 ile duplicate kontrol + ilerleme alanları),
+`sync_logs`, `app_settings` (auto-sync yapılandırması).
 
 ---
 
@@ -150,9 +179,10 @@ saklanır — data lineage), `validation_errors`, `validation_rules` (dinamik),
 |--------|--------|---------|
 | Backend | **FastAPI** | Async, otomatik Swagger, Pydantic tip güvenliği; case'de önerilen |
 | ORM | **SQLAlchemy 2.0 + aiosqlite** | Async SQLite, olgun ekosistem |
-| Veri | **pandas** | Chunked okuma (100K+ hazır), encoding/tip dönüşümü |
+| Veri | **pandas** | Chunked okuma (100K+), encoding/tip dönüşümü, grup istatistikleri |
 | HTTP | **httpx** | Async client, timeout/retry |
-| Test | **pytest + pytest-asyncio** | 32 test (validasyon ağırlıklı) |
+| Zamanlama | **APScheduler** | Opt-in periyodik auto-sync (uygulama yaşam döngüsünde) |
+| Test | **pytest + pytest-asyncio** | 37 test (validasyon ağırlıklı) |
 | Frontend | **React + Vite** | SPA, anlık filtreleme; case'de tercih edilen |
 | UI | **Ant Design 5** | Enterprise Table/Form/Filter, TR locale, dark; case FAQ'da onaylı |
 | Grafik | **Recharts** | React-native, responsive |
@@ -163,7 +193,7 @@ saklanır — data lineage), `validation_errors`, `validation_rules` (dinamik),
 ## Test
 
 ```bash
-cd backend && pytest -q       # 32 test: validasyon kuralları, import, kayıt, agregasyon, sync, endpoint
+cd backend && pytest -q       # 37 test: validasyon kuralları, import, kayıt, agregasyon, sync, endpoint, istatistiksel anomali, auto-sync, kayıp analizi
 ```
 
 In-memory SQLite fixture ile her test izole. Validasyon kuralları için her kural
@@ -175,13 +205,17 @@ korur.
 
 ## Yapamadıklarım / Daha Fazla Zaman Olsaydı
 
-- **Async/background import + polling**: pandas chunked okuma hazır; 100K+ için
-  arka plan görevi + ilerleme polling'i eklenebilir (şu an senkron, 2.117 satır
-  saniye altı).
 - **Gerçek API doğrulaması**: mock ile geliştirildi; gerçek endpoint anahtarıyla
   uçtan uca demo `.env` değişikliğiyle yapılabilir.
 - **PDF Türkçe glifleri**: jsPDF'te ASCII'ye transliterasyon yapılıyor (gömülü
   Unicode font yerine) — okunur ama Türkçe karakterler sadeleştirilmiş.
-- **Kimlik doğrulama/çok kullanıcılı** kapsam dışı (tek operatör MVP).
-- Dashboard'da tarih aralığı dışında daha fazla drill-down ve kaydedilebilir
-  filtre profilleri.
+- **Duruş neden kodları + Pareto**: veride neden kodu yok; MES'ten gelirse Kayıp
+  Analizi tam **Six Big Losses**'a genişler (bkz. `docs/BONUS_VE_YOL_HARITASI.md`).
+- **Kimlik doğrulama/çok kullanıcılı** kapsam dışı (tek operatör MVP); API anahtarı
+  şimdilik `.env`, ileride secrets manager.
+- Daha derin ölçek (≥500K): arka plan içe aktarma hazır; Postgres'e geçiş ve
+  kalıcı iş kuyruğu (Celery) ile büyütülebilir.
+
+> Not: Async/background import (100K+), istatistiksel anomali tespiti, OEE kayıp
+> şelalesi, zamanlanmış auto-sync, dashboard drill-down ve uyarı merkezi **Milestone
+> 2 kapsamında tamamlandı** (yukarıdaki "Gelişmiş Özellikler").
