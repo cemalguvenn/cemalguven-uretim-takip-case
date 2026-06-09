@@ -144,12 +144,23 @@ class ImportBatch(Base):
     filename: Mapped[str] = mapped_column(String, nullable=False)
     file_hash: Mapped[str] = mapped_column(String, nullable=False)  # SHA-256 dedupe
     total_rows: Mapped[int | None] = mapped_column(Integer)
+    processed_rows: Mapped[int] = mapped_column(Integer, default=0)
     clean_rows: Mapped[int | None] = mapped_column(Integer)
     warning_rows: Mapped[int | None] = mapped_column(Integer)
     error_rows: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String, default="processing")
+    phase: Mapped[str | None] = mapped_column(String)  # importing | validating | done | failed
+    error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class AppSetting(Base):
+    """Tiny key/value store for runtime config (e.g. auto-sync schedule)."""
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(String)
 
 
 class SyncLog(Base):

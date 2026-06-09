@@ -8,9 +8,10 @@ single-record re-validation after a correction.
 """
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import ProductionRecord, ValidationError, ValidationRule
@@ -68,6 +69,21 @@ def _make_error(
     )
 
 
+def _finding_dict(record_id: int, batch_id: int, code: str, cfg: ValidationRule, f: Finding) -> dict:
+    """Same as _make_error but a plain dict for bulk `insert()` (executemany)."""
+    return dict(
+        record_id=record_id, import_batch_id=batch_id, rule_code=code,
+        severity=f.severity, category=cfg.category, field_name=f.field_name,
+        message=f.message, expected_value=f.expected_value, actual_value=f.actual_value,
+        suggested_action=f.action(), is_resolved=False,
+    )
+
+
+def _chunks(seq: list, n: int):
+    for i in range(0, len(seq), n):
+        yield seq[i:i + n]
+
+
 def _systematic_findings(
     records: list[ProductionRecord], rules: dict[str, ValidationRule]
 ) -> dict[int, list[tuple[str, ValidationRule, Finding]]]:
@@ -105,8 +121,89 @@ def _systematic_findings(
     return out
 
 
+def _percentile(sorted_vals: list[float], p: float) -> float:
+    k = (len(sorted_vals) - 1) * p
+    lo = int(k)
+    hi = min(lo + 1, len(sorted_vals) - 1)
+    if lo == hi:
+        return sorted_vals[lo]
+    return sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * (k - lo)
+
+
+def _iqr_outliers(records, value_fn, cfg, code, field, label):
+    """Flag records whose metric falls outside median±k·IQR within their
+    (product × station) group — contextual anomalies fixed thresholds miss."""
+    out: dict[int, list[tuple[str, ValidationRule, Finding]]] = defaultdict(list)
+    k = cfg.error_threshold if cfg.error_threshold is not None else 3.0
+    MIN_GROUP = 8  # need a meaningful distribution before calling anything an outlier
+
+    groups: dict[tuple, list] = defaultdict(list)
+    for rec in records:
+        if rec.stok_adi and rec.is_istasyon_adi and value_fn(rec) is not None:
+            groups[(rec.stok_adi, rec.is_istasyon_adi)].append(rec)
+
+    for members in groups.values():
+        if len(members) < MIN_GROUP:
+            continue
+        xs = sorted(value_fn(m) for m in members)
+        q1, q3 = _percentile(xs, 0.25), _percentile(xs, 0.75)
+        iqr = q3 - q1
+        if iqr <= 0:
+            continue
+        lo, hi = q1 - k * iqr, q3 + k * iqr
+        for m in members:
+            v = value_fn(m)
+            if v < lo or v > hi:
+                out[m.id].append((code, cfg, Finding(
+                    cfg.default_severity,
+                    f"{label}: grup normalinden istatistiksel sapma "
+                    f"(beklenen ~{lo:.1f}–{hi:.1f}, gerçek {v:.1f}).",
+                    field_name=field, expected_value=f"{lo:.1f}–{hi:.1f}", actual_value=f"{v:.1f}")))
+    return out
+
+
+def _statistical_findings(
+    records: list[ProductionRecord], rules: dict[str, ValidationRule]
+) -> dict[int, list[tuple[str, ValidationRule, Finding]]]:
+    out: dict[int, list[tuple[str, ValidationRule, Finding]]] = defaultdict(list)
+    oee_cfg = rules.get("STATISTICAL_OEE_OUTLIER")
+    if oee_cfg is not None:
+        f = _iqr_outliers(records, lambda m: m.oee if _present(m.oee) else None,
+                          oee_cfg, "STATISTICAL_OEE_OUTLIER", "OEE", "OEE aykırı değer")
+        for rid, t in f.items():
+            out[rid].extend(t)
+    rate_cfg = rules.get("PRODUCTION_RATE_OUTLIER")
+    if rate_cfg is not None:
+        def rate(m):
+            if _present(m.uretilen_miktar) and _present(m.calisma_suresi) and m.calisma_suresi > 0:
+                return m.uretilen_miktar / m.calisma_suresi
+            return None
+        f = _iqr_outliers(records, rate, rate_cfg, "PRODUCTION_RATE_OUTLIER",
+                          "Üretim Hızı", "Üretim hızı aykırı değer")
+        for rid, t in f.items():
+            out[rid].extend(t)
+    return out
+
+
+def _batch_level_findings(
+    records: list[ProductionRecord], rules: dict[str, ValidationRule]
+) -> dict[int, list[tuple[str, ValidationRule, Finding]]]:
+    """Merge all whole-batch passes (systematic + statistical) by record id."""
+    merged: dict[int, list[tuple[str, ValidationRule, Finding]]] = defaultdict(list)
+    for pass_fn in (_systematic_findings, _statistical_findings):
+        for rec_id, triples in pass_fn(records, rules).items():
+            merged[rec_id].extend(triples)
+    return merged
+
+
 async def validate_batch(session: AsyncSession, batch_id: int) -> dict[str, int]:
-    """Validate every record of a batch. Returns {clean, warning, error} counts."""
+    """Validate every record of a batch using bulk inserts/updates.
+
+    Findings are collected as plain dicts and inserted with executemany; final
+    statuses are grouped and applied with a handful of bulk UPDATEs. This keeps
+    the work O(few queries) instead of O(rows) ORM round-trips — the difference
+    between ~30s and a few seconds at 60K+ rows.
+    """
     rules = await _load_active_rules(session)
     records = (await session.scalars(
         select(ProductionRecord).where(ProductionRecord.import_batch_id == batch_id)
@@ -117,17 +214,29 @@ async def validate_batch(session: AsyncSession, batch_id: int) -> dict[str, int]
         delete(ValidationError).where(ValidationError.import_batch_id == batch_id)
     )
 
-    systematic = _systematic_findings(list(records), rules)
+    batch_level = _batch_level_findings(list(records), rules)  # systematic + statistical
     counts = {"clean": 0, "warning": 0, "error": 0}
+    finding_rows: list[dict] = []
+    status_updates: list[dict] = []  # [{id, status}] for executemany update-by-PK
 
-    for rec in records:
-        triples = _run_record_rules(rec, rules) + systematic.get(rec.id, [])
+    for i, rec in enumerate(records):
+        triples = _run_record_rules(rec, rules) + batch_level.get(rec.id, [])
         for code, cfg, f in triples:
-            session.add(_make_error(rec, batch_id, code, cfg, f))
-        if rec.status not in _PROTECTED:
-            rec.status = _status_from_findings([t[2] for t in triples])
-        counts[rec.status if rec.status in counts else "clean"] += 1
+            finding_rows.append(_finding_dict(rec.id, batch_id, code, cfg, f))
+        if rec.status in _PROTECTED:
+            new_status = rec.status
+        else:
+            new_status = _status_from_findings([t[2] for t in triples])
+            status_updates.append({"id": rec.id, "status": new_status})
+        counts[new_status if new_status in counts else "clean"] += 1
+        if i % 2000 == 0:
+            await asyncio.sleep(0)  # yield so polling requests stay responsive
 
+    for chunk in _chunks(finding_rows, 1000):
+        await session.execute(insert(ValidationError), chunk)
+    # Bulk update-by-primary-key (executemany) — far faster than IN-list UPDATEs.
+    for chunk in _chunks(status_updates, 2000):
+        await session.execute(update(ProductionRecord), chunk)
     await session.commit()
     return counts
 

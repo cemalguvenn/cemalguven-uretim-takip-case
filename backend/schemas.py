@@ -98,10 +98,13 @@ class ImportBatchOut(BaseModel):
     id: int
     filename: str
     total_rows: int | None
+    processed_rows: int
     clean_rows: int | None
     warning_rows: int | None
     error_rows: int | None
     status: str
+    phase: str | None
+    error_message: str | None
     created_at: datetime
     completed_at: datetime | None
 
@@ -182,6 +185,31 @@ class QualityDistOut(BaseModel):
     defect_rate: float | None
 
 
+class StationLoss(BaseModel):
+    istasyon: str
+    availability: float
+    performance: float
+    quality: float
+    oee: float
+    availability_loss: float
+    performance_loss: float
+    quality_loss: float
+
+
+class LossAnalysisOut(BaseModel):
+    availability: float
+    performance: float
+    quality: float
+    oee: float
+    availability_loss: float
+    performance_loss: float
+    quality_loss: float
+    planned_stop_min: float
+    unplanned_stop_min: float
+    run_min: float
+    stations: list[StationLoss]
+
+
 # --------------------------------------------------------------------------- #
 # Validation rules (settings)
 # --------------------------------------------------------------------------- #
@@ -241,11 +269,24 @@ class SyncSubmitRequest(BaseModel):
     force: bool = False
 
 
+class AutoSyncConfig(BaseModel):
+    enabled: bool
+    interval_minutes: int = Field(default=60, ge=1, le=1440)
+
+
 class SyncResultOut(BaseModel):
     status: str  # success | failed | skipped | duplicate
     message: str
     submission_id: int | None = None
     response_status: int | None = None
+
+
+class AlertOut(BaseModel):
+    key: str
+    severity: str  # error | warning | info
+    title: str
+    detail: str | None = None
+    link: str | None = None
 
 
 class SyncLogOut(BaseModel):

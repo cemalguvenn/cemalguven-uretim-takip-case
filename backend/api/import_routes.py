@@ -1,9 +1,7 @@
-"""Import endpoints: upload a CSV (parse + validate) and inspect import batches."""
+"""Import endpoints: upload a CSV (async background parse + validate) and inspect batches."""
 from __future__ import annotations
 
-from datetime import datetime
-
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,18 +12,24 @@ from services.import_service import (
     ColumnCountError,
     DuplicateImportError,
     EmptyFileError,
-    import_csv,
+    create_batch_for_upload,
+    process_import,
 )
-from validation.engine import validate_batch
 
 router = APIRouter(prefix="/api/import", tags=["import"])
 
 
 @router.post("/upload", response_model=ImportBatchOut)
-async def upload_csv(file: UploadFile = File(...), session: AsyncSession = Depends(get_session)):
+async def upload_csv(
+    background: BackgroundTasks,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+):
+    """Create the batch (status=processing) and return immediately; the heavy
+    import + validation runs in the background. Poll GET /batches/{id} for progress."""
     raw = await file.read()
     try:
-        result = await import_csv(session, file.filename or "upload.csv", raw)
+        batch = await create_batch_for_upload(session, file.filename or "upload.csv", raw)
     except DuplicateImportError as exc:
         raise HTTPException(
             status_code=409,
@@ -34,15 +38,7 @@ async def upload_csv(file: UploadFile = File(...), session: AsyncSession = Depen
     except (EmptyFileError, ColumnCountError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    counts = await validate_batch(session, result.batch.id)
-
-    batch = await session.get(ImportBatch, result.batch.id)
-    batch.clean_rows = counts["clean"]
-    batch.warning_rows = counts["warning"]
-    batch.error_rows = counts["error"]
-    batch.status = "completed"
-    batch.completed_at = datetime.utcnow()
-    await session.commit()
+    background.add_task(process_import, batch.id, raw)
     return batch
 
 

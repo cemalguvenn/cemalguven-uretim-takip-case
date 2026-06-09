@@ -40,6 +40,7 @@ export const api = {
     });
   },
   listBatches: () => http.get("/api/import/batches"),
+  getBatch: (id) => http.get(`/api/import/batches/${id}`),
 
   // Records
   listRecords: (params) => http.get(`/api/records${qs(params)}`),
@@ -59,11 +60,15 @@ export const api = {
   stationRanking: (params) => http.get(`/api/reports/station-ranking${qs(params)}`),
   qualityDistribution: (params) =>
     http.get(`/api/reports/quality-distribution${qs(params)}`),
+  lossAnalysis: (params) => http.get(`/api/reports/loss-analysis${qs(params)}`),
 
   // Validation
   validationSummary: () => http.get("/api/validation/summary"),
   listErrors: (params) => http.get(`/api/validation/errors${qs(params)}`),
   revalidateAll: () => http.post("/api/validation/re-validate-all"),
+
+  // Alerts
+  alerts: () => http.get("/api/alerts"),
 
   // Settings (rules)
   listRules: () => http.get("/api/settings/validation-rules"),
@@ -77,6 +82,9 @@ export const api = {
   syncSubmit: (date, shift, force) =>
     http.post("/api/sync/submit", { production_date: date, shift, force }),
   syncHistory: () => http.get("/api/sync/history"),
+  getAutoSync: () => http.get("/api/sync/auto-sync"),
+  setAutoSync: (body) => http.put("/api/sync/auto-sync", body),
+  runSyncNow: () => http.post("/api/sync/run-now"),
 };
 
 export default api;

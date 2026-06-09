@@ -1,6 +1,7 @@
 """Async SQLAlchemy engine, session factory, and schema creation."""
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -16,6 +17,15 @@ _settings = get_settings()
 engine: AsyncEngine = create_async_engine(_settings.database_url, echo=False, future=True)
 
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+
+@event.listens_for(engine.sync_engine, "connect")
+def _sqlite_pragmas(dbapi_conn, _record):
+    """WAL lets a background import write while the UI keeps polling (reads)."""
+    cur = dbapi_conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")
+    cur.execute("PRAGMA synchronous=NORMAL")
+    cur.close()
 
 
 async def init_db() -> None:

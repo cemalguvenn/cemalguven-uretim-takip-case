@@ -22,6 +22,7 @@ export default function ImportData() {
   const { message, modal } = App.useApp();
   const [uploading, setUploading] = useState(false);
   const [percent, setPercent] = useState(0);
+  const [processing, setProcessing] = useState(null); // {phase, processed, total}
   const [result, setResult] = useState(null);
   const [batches, setBatches] = useState([]);
 
@@ -30,19 +31,50 @@ export default function ImportData() {
     loadBatches();
   }, []);
 
+  // Poll batch status until import + validation finish (work runs in background).
+  const pollBatch = (id) => {
+    const tick = async () => {
+      try {
+        const { data } = await api.getBatch(id);
+        setProcessing({ phase: data.phase, processed: data.processed_rows, total: data.total_rows });
+        if (data.status === "completed") {
+          setResult(data);
+          setUploading(false);
+          setProcessing(null);
+          message.success(`${data.total_rows} kayıt içe aktarıldı ve doğrulandı.`);
+          loadBatches();
+          return;
+        }
+        if (data.status === "failed") {
+          setUploading(false);
+          setProcessing(null);
+          message.error(`İçe aktarma başarısız: ${data.error_message || "bilinmeyen hata"}`);
+          loadBatches();
+          return;
+        }
+        setTimeout(tick, 1000);
+      } catch (err) {
+        setUploading(false);
+        setProcessing(null);
+        message.error(err.userMessage);
+      }
+    };
+    tick();
+  };
+
   const doUpload = async (file) => {
     setUploading(true);
     setPercent(0);
     setResult(null);
+    setProcessing(null);
     try {
       const res = await api.uploadCsv(file, (e) => {
-        if (e.total) setPercent(Math.round((e.loaded / e.total) * 90));
+        if (e.total) setPercent(Math.round((e.loaded / e.total) * 100));
       });
-      setPercent(100);
-      setResult(res.data);
-      message.success(`${res.data.total_rows} kayıt içe aktarıldı ve doğrulandı.`);
-      loadBatches();
+      // Backend returns immediately with a 'processing' batch; poll for progress.
+      pollBatch(res.data.id);
     } catch (err) {
+      setUploading(false);
       if (err.response?.status === 409) {
         modal.warning({
           title: "Yinelenen dosya",
@@ -51,11 +83,12 @@ export default function ImportData() {
       } else {
         message.error(err.userMessage);
       }
-    } finally {
-      setUploading(false);
     }
     return false; // prevent antd's default upload
   };
+
+  const processPercent =
+    processing && processing.total ? Math.round((processing.processed / processing.total) * 100) : 0;
 
   const columns = [
     { title: "#", dataIndex: "id", width: 60 },
@@ -96,7 +129,28 @@ export default function ImportData() {
                 Windows-1254 / UTF-8 desteklenir. Aynı dosya tekrar yüklenirse uyarılırsınız.
               </p>
             </Dragger>
-            {uploading && <Progress percent={percent} status="active" style={{ marginTop: 16 }} />}
+            {uploading && (
+              <div style={{ marginTop: 16 }}>
+                {!processing ? (
+                  <>
+                    <Progress percent={percent} status="active" />
+                    <div style={{ color: "#8694a8", fontSize: 13 }}>Dosya yükleniyor…</div>
+                  </>
+                ) : (
+                  <>
+                    <Progress
+                      percent={processing.phase === "validating" ? 100 : processPercent}
+                      status="active"
+                    />
+                    <div style={{ color: "#8694a8", fontSize: 13 }}>
+                      {processing.phase === "validating"
+                        ? "Doğrulanıyor… (kalite kontrolleri çalışıyor)"
+                        : `İçe aktarılıyor… ${processing.processed.toLocaleString("tr-TR")} / ${processing.total.toLocaleString("tr-TR")}`}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </Card>
         </Col>
 
