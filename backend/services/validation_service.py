@@ -4,8 +4,9 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import ImportBatch, ValidationError
+from models import ImportBatch, ValidationError, ValidationRule
 from schemas import KeyCount, ValidationSummaryOut
+from seed import reset_rules
 from validation.engine import validate_batch
 
 
@@ -53,6 +54,28 @@ async def list_errors(session: AsyncSession, *, page=1, page_size=50, severity=N
     )
     items = list((await session.scalars(stmt)).all())
     return items, int(total or 0)
+
+
+async def list_rules(session: AsyncSession) -> list[ValidationRule]:
+    return list((await session.scalars(
+        select(ValidationRule).order_by(ValidationRule.category, ValidationRule.rule_code)
+    )).all())
+
+
+async def update_rule(session: AsyncSession, rule_id: int, patch: dict) -> ValidationRule | None:
+    rule = await session.get(ValidationRule, rule_id)
+    if rule is None:
+        return None
+    for field in ("is_active", "default_severity", "warning_threshold", "error_threshold"):
+        if field in patch:
+            setattr(rule, field, patch[field])
+    await session.commit()
+    return rule
+
+
+async def reset_all_rules(session: AsyncSession) -> list[ValidationRule]:
+    await reset_rules(session)
+    return await list_rules(session)
 
 
 async def revalidate_all(session: AsyncSession) -> dict[str, int]:

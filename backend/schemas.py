@@ -203,3 +203,63 @@ class ValidationRuleUpdate(BaseModel):
     default_severity: str | None = None
     warning_threshold: float | None = None
     error_threshold: float | None = None
+
+
+# --------------------------------------------------------------------------- #
+# API sync
+# --------------------------------------------------------------------------- #
+class SubmitPayload(BaseModel):
+    """Exact body sent to the target API (per the case-study contract)."""
+    oe_value: float
+    machine_count: int
+    shift: int
+    total_production_units: int
+    production_date: str
+
+
+class SyncCell(BaseModel):
+    production_date: date
+    shift: int
+    clean_count: int
+    oe_value: float | None
+    machine_count: int
+    total_production_units: int
+    sync_status: str  # none | success | failed | skipped
+    submission_id: int | None = None
+    skip_reason: str | None = None
+
+
+class SyncPreview(BaseModel):
+    payload: SubmitPayload | None
+    record_count: int
+    skip_reason: str | None = None
+
+
+class SyncSubmitRequest(BaseModel):
+    production_date: date
+    shift: int
+    force: bool = False
+
+
+class SyncResultOut(BaseModel):
+    status: str  # success | failed | skipped | duplicate
+    message: str
+    submission_id: int | None = None
+    response_status: int | None = None
+
+
+class SyncLogOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    production_date: date
+    shift: int
+    oe_value: float | None
+    machine_count: int | None
+    total_production: int | None
+    response_status: int | None
+    submission_id: int | None
+    status: str
+    attempt_count: int
+    last_attempt_at: datetime | None
+    error_message: str | None
+    created_at: datetime
