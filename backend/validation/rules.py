@@ -50,7 +50,7 @@ class Finding:
 RuleFn = Callable[[ProductionRecord, ValidationRule], list[Finding]]
 RULE_REGISTRY: dict[str, RuleFn] = {}
 # Rules evaluated over the whole batch rather than a single record.
-BATCH_RULES: set[str] = {"SYSTEMATIC_HIGH_P"}
+BATCH_RULES: set[str] = {"SYSTEMATIC_HIGH_P", "STATISTICAL_OEE_OUTLIER", "PRODUCTION_RATE_OUTLIER"}
 
 
 def rule(code: str) -> Callable[[RuleFn], RuleFn]:

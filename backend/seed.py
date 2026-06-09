@@ -111,6 +111,16 @@ RULE_CATALOG: list[dict] = [
          default_severity="info", warning_threshold=None, error_threshold=1000,
          description="Ürün+istasyon kombinasyonunda tüm kayıtlarda P > error_threshold — "
                      "tekil hata değil, sistemik sorun (ideal çevrim süresi yanlış)."),
+
+    # --- Statistical / contextual (batch-level, detection only) ---
+    dict(rule_code="STATISTICAL_OEE_OUTLIER", display_name="OEE istatistiksel aykırı değer",
+         category="statistical", default_severity="warning", warning_threshold=None, error_threshold=3.0,
+         description="Ürün×istasyon grubunda OEE, median ± k·IQR dışında (k = error_threshold). "
+                     "Sabit eşiklerin kaçırdığı bağlamsal anomalileri yakalar; yanlış pozitifi "
+                     "sınırlamak için k=3 (uç değer) ve grup boyutu ≥ 8."),
+    dict(rule_code="PRODUCTION_RATE_OUTLIER", display_name="Üretim hızı istatistiksel aykırı değer",
+         category="statistical", default_severity="info", warning_threshold=None, error_threshold=3.0,
+         description="Ürün×istasyon grubunda üretim hızı (Üretilen/Çalışma) median ± k·IQR dışında."),
 ]
 
 
