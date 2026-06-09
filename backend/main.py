@@ -15,10 +15,14 @@ from seed import seed_rules
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from services import scheduler
+
     await init_db()
     async with SessionLocal() as session:
         await seed_rules(session)
+        await scheduler.start(session)  # opt-in auto-sync (default off)
     yield
+    scheduler.shutdown()
 
 
 app = FastAPI(
@@ -51,6 +55,7 @@ _ROUTER_MODULES = [
     "report_routes",
     "sync_routes",
     "settings_routes",
+    "alerts_routes",
     "mock_api",
 ]
 

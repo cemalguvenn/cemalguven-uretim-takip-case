@@ -3,13 +3,16 @@ import {
   App,
   Button,
   Card,
+  InputNumber,
   Modal,
   Space,
+  Switch,
   Table,
   Tag,
   Tooltip,
   Typography,
 } from "antd";
+import { ThunderboltOutlined } from "@ant-design/icons";
 import {
   CheckCircleFilled,
   CloseCircleFilled,
@@ -37,16 +40,44 @@ export default function SyncManager() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [auto, setAuto] = useState({ enabled: false, interval_minutes: 60 });
   const [preview, setPreview] = useState({ open: false, cell: null, data: null });
 
   const load = async () => {
     setLoading(true);
     try {
-      const [p, h] = await Promise.all([api.syncPending(), api.syncHistory()]);
+      const [p, h, a] = await Promise.all([
+        api.syncPending(),
+        api.syncHistory(),
+        api.getAutoSync(),
+      ]);
       setCells(p.data);
       setHistory(h.data);
+      setAuto(a.data);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveAuto = async (patch) => {
+    const next = { ...auto, ...patch };
+    setAuto(next);
+    try {
+      await api.setAutoSync(next);
+      message.success(next.enabled ? "Otomatik gönderim açık." : "Otomatik gönderim kapalı.");
+    } catch (e) {
+      message.error(e.userMessage);
+    }
+  };
+
+  const runNow = async () => {
+    setSending(true);
+    try {
+      const r = await api.runSyncNow();
+      message.success(r.data.message);
+      await load();
+    } finally {
+      setSending(false);
     }
   };
   useEffect(() => {
@@ -198,6 +229,32 @@ export default function SyncManager() {
           </Button>
         }
       />
+
+      <Card style={{ marginBottom: 16 }}>
+        <Space size="large" wrap>
+          <Space size={8}>
+            <Switch checked={auto.enabled} onChange={(v) => saveAuto({ enabled: v })} />
+            <span>Otomatik gönderim (her vardiya sonrası)</span>
+          </Space>
+          <Space size={8}>
+            <span style={{ color: "#8694a8" }}>Aralık (dk):</span>
+            <InputNumber
+              min={1}
+              max={1440}
+              value={auto.interval_minutes}
+              onChange={(v) => v && setAuto({ ...auto, interval_minutes: v })}
+              onBlur={() => saveAuto({ interval_minutes: auto.interval_minutes })}
+              style={{ width: 90 }}
+            />
+          </Space>
+          <Button icon={<ThunderboltOutlined />} loading={sending} onClick={runNow}>
+            Şimdi Çalıştır
+          </Button>
+          <span style={{ color: "#6b7689", fontSize: 12 }}>
+            Yalnızca hazır (doğrulanmış, gönderilmemiş) gün/vardiyalar gönderilir — idempotent.
+          </span>
+        </Space>
+      </Card>
 
       <Card title="Gün × Vardiya Matrisi" style={{ marginBottom: 16 }}>
         <Table

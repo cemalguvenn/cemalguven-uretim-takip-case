@@ -166,6 +166,25 @@ async def history(session: AsyncSession) -> list[SyncLog]:
 # --------------------------------------------------------------------------- #
 # Submit
 # --------------------------------------------------------------------------- #
+async def submit_all_ready(session: AsyncSession) -> dict:
+    """Submit every 'ready' (validated, unsent, non-empty) day/shift cell.
+
+    Idempotent: cells already submitted are skipped by `submit`'s duplicate guard,
+    so the scheduler can run this repeatedly with no duplicates."""
+    cells = await pending_matrix(session)
+    result = {"submitted": 0, "failed": 0, "skipped": 0}
+    for c in cells:
+        if c["sync_status"] == "none" and not c["skip_reason"]:
+            r = await submit(session, c["production_date"], c["shift"], force=False)
+            if r["status"] == "success":
+                result["submitted"] += 1
+            elif r["status"] == "failed":
+                result["failed"] += 1
+            else:
+                result["skipped"] += 1
+    return result
+
+
 async def submit(session: AsyncSession, day: date, shift: int, force: bool = False) -> dict:
     existing = await session.scalar(
         select(SyncLog).where(SyncLog.production_date == day, SyncLog.shift == shift)
