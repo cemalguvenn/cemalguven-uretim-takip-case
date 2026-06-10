@@ -41,6 +41,7 @@ export const api = {
   },
   listBatches: () => http.get("/api/import/batches"),
   getBatch: (id) => http.get(`/api/import/batches/${id}`),
+  deleteBatch: (id) => http.delete(`/api/import/batches/${id}`),
 
   // Records
   listRecords: (params) => http.get(`/api/records${qs(params)}`),
@@ -63,7 +64,7 @@ export const api = {
   lossAnalysis: (params) => http.get(`/api/reports/loss-analysis${qs(params)}`),
 
   // Validation
-  validationSummary: () => http.get("/api/validation/summary"),
+  validationSummary: (params) => http.get(`/api/validation/summary${qs(params)}`),
   listErrors: (params) => http.get(`/api/validation/errors${qs(params)}`),
   revalidateAll: () => http.post("/api/validation/re-validate-all"),
 

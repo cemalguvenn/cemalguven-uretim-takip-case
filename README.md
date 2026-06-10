@@ -38,17 +38,37 @@ yerleşik mock API varsayılanlarıyla çalışır.
 
 ## Ekran Görüntüleri
 
-> `docs/` altına eklenecek: Dashboard, Veri Yükle, Validasyon Raporu, Kayıp Analizi, API Gönderim, Ayarlar.
+**Dashboard** — KPI kartları + OEE trendi, vardiya/istasyon kıyas, kalite dağılımı:
 
-| Dashboard | Validasyon |
-|-----------|-----------|
-| KPI kartları + OEE trend, vardiya/istasyon kıyas, kalite dağılımı | Sınıflandırılmış hata listesi, kategori dağılımı, düzeltme modalı |
+![Dashboard](docs/screenshots/dashboard.png)
+
+**Veri Yükle** — yükleme öncesi ilk 10 satır önizlemesi (onaysız yükleme yok) ve içe aktarma özeti:
+
+![Import — yükleme öncesi önizleme](docs/screenshots/import-preview.png)
+![Import — özet](docs/screenshots/import-summary.png)
+
+**Validasyon Raporu** — sınıflandırılmış hata listesi + kategori dağılımı:
+
+![Validasyon Raporu](docs/screenshots/validation-report.png)
+
+**Kayıp Analizi** — OEE kayıp şelalesi + istasyon kırılımı:
+
+![Kayıp Analizi](docs/screenshots/loss-analysis.png)
+
+**API Gönderim** — gün×vardiya matrisi, önizleme, gönderim geçmişi:
+
+![API Gönderim](docs/screenshots/sync-manager.png)
+
+**Kayıtlar & Ayarlar** — filtreleme/düzeltme ve kural kataloğu yönetimi:
+
+![Kayıtlar](docs/screenshots/records.png)
+![Ayarlar](docs/screenshots/settings.png)
 
 ---
 
 ## Tespit Edilen Veri Kalitesi Sorunları
 
-CSV'de **23+ farklı hata tipi** otomatik tespit edilir (toplam ~1.880 bulgu).
+CSV'de **25+ farklı hata tipi** otomatik tespit edilir (toplam ~1.880 bulgu).
 Tüm eşikler veritabanında saklanır ve **Ayarlar** sayfasından düzenlenebilir.
 
 | Kural | Seviye | Adet | Örnek / Açıklama |
@@ -71,6 +91,13 @@ Tüm eşikler veritabanında saklanır ve **Ayarlar** sayfasından düzenlenebil
 | `MISSING_SHIFT / WORK_TIME / STOP_TIME / STATION` | error | 10/7/2/1 | Zorunlu alan boş |
 | `MISSING_JOB_ORDER / WORK_CENTER` | warning | 10/12 | Opsiyonel alan boş |
 | `INVALID_SHIFT_VALUE`, `NEGATIVE_*`, `STOP_NOT_CATEGORIZED`, `ZERO_PROD_SHORT_RUN` | — | — | Format / işaret / kategori kontrolleri |
+| `DUPLICATE_RECORD` | warning | 0\* | Aynı `record_id` **veya** aynı iş anahtarı (Tarih+Vardiya+İstasyon+İş Emri+Stok) birden fazla satırda — üretim çift sayılır. Tüm kopyalar ikizlerinin CSV satır numaralarıyla işaretlenir |
+| `JOB_ORDER_FORMAT` | warning | 0\* | İş Emri No veri sözlüğü formatına (302 + 7 hane) uymuyor |
+
+\* Bu veri setinde 0 bulgu — bilinçli olarak doğrulandı (yanlış pozitif yok);
+kurallar sonraki içe aktarmalarda koruma sağlar ve birim testleriyle kanıtlanmıştır.
+Satır-içi duplicate'e ek olarak **dosya düzeyinde** duplicate, SHA-256 hash ile
+yükleme anında yakalanır (409).
 
 **Yanlış pozitiflerden kaçınma:** Sentinel `-10` değeri yalnızca
 `SENTINEL_VALUE` ile işaretlenir (negatiflik kuralları onu atlar). A-formül
@@ -182,7 +209,7 @@ saklanır — data lineage), `validation_errors`, `validation_rules` (dinamik),
 | Veri | **pandas** | Chunked okuma (100K+), encoding/tip dönüşümü, grup istatistikleri |
 | HTTP | **httpx** | Async client, timeout/retry |
 | Zamanlama | **APScheduler** | Opt-in periyodik auto-sync (uygulama yaşam döngüsünde) |
-| Test | **pytest + pytest-asyncio** | 37 test (validasyon ağırlıklı) |
+| Test | **pytest + pytest-asyncio** | 41 test (validasyon ağırlıklı) |
 | Frontend | **React + Vite** | SPA, anlık filtreleme; case'de tercih edilen |
 | UI | **Ant Design 5** | Enterprise Table/Form/Filter, TR locale, dark; case FAQ'da onaylı |
 | Grafik | **Recharts** | React-native, responsive |
@@ -193,7 +220,7 @@ saklanır — data lineage), `validation_errors`, `validation_rules` (dinamik),
 ## Test
 
 ```bash
-cd backend && pytest -q       # 37 test: validasyon kuralları, import, kayıt, agregasyon, sync, endpoint, istatistiksel anomali, auto-sync, kayıp analizi
+cd backend && pytest -q       # 41 test: validasyon kuralları, import, kayıt, agregasyon, sync, endpoint, istatistiksel anomali, auto-sync, kayıp analizi
 ```
 
 In-memory SQLite fixture ile her test izole. Validasyon kuralları için her kural
@@ -211,6 +238,9 @@ korur.
   Unicode font yerine) — okunur ama Türkçe karakterler sadeleştirilmiş.
 - **Duruş neden kodları + Pareto**: veride neden kodu yok; MES'ten gelirse Kayıp
   Analizi tam **Six Big Losses**'a genişler (bkz. `docs/BONUS_VE_YOL_HARITASI.md`).
+- **Çoklu CSV birleştirme (tercih edilen)**: tek seferde birden fazla dosya
+  yükleme yapılmadı; her dosya ayrı batch olarak yüklenir (aynı sonuca art arda
+  yüklemeyle ulaşılır, SHA-256 duplicate koruması dosya başına çalışır).
 - **Kimlik doğrulama/çok kullanıcılı** kapsam dışı (tek operatör MVP); API anahtarı
   şimdilik `.env`, ileride secrets manager.
 - Daha derin ölçek (≥500K): arka plan içe aktarma hazır; Postgres'e geçiş ve

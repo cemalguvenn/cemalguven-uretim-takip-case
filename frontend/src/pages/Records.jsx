@@ -64,6 +64,7 @@ export default function Records() {
       istasyon: csv("istasyon"),
       status: csv("status"),
       stok: searchParams.get("stok") || "",
+      batch_id: searchParams.get("batch_id") ? Number(searchParams.get("batch_id")) : null,
       oee: [0, 200],
       onlyProblematic: false,
       hideErrors: false,
@@ -71,6 +72,10 @@ export default function Records() {
       range: s && e ? [dayjs(s), dayjs(e)] : null,
     };
   });
+  const [batches, setBatches] = useState([]);
+  useEffect(() => {
+    api.listBatches().then((r) => setBatches(r.data));
+  }, []);
   const [data, setData] = useState({ items: [], total: 0 });
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
@@ -84,6 +89,7 @@ export default function Records() {
       page, page_size: pageSize,
       vardiya: f.vardiya, istasyon: f.istasyon, status: f.status,
       stok: f.stok || undefined,
+      batch_id: f.batch_id ?? undefined,
       oee_min: f.oee[0] > 0 ? f.oee[0] : undefined,
       oee_max: f.oee[1] < 200 ? f.oee[1] : undefined,
       only_problematic: f.onlyProblematic || undefined,
@@ -234,6 +240,15 @@ export default function Records() {
               value={filters.status}
               options={STATUS_OPTIONS}
               onChange={(v) => setF({ status: v })}
+            />
+          </Col>
+          <Col xs={24} md={8}>
+            <Select
+              allowClear showSearch placeholder="Yükleme (tümü)" style={{ width: "100%" }}
+              value={filters.batch_id}
+              options={batches.map((b) => ({ value: b.id, label: `#${b.id} — ${b.filename}` }))}
+              optionFilterProp="label"
+              onChange={(v) => setF({ batch_id: v ?? null })}
             />
           </Col>
           <Col xs={24} md={8}>

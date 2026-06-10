@@ -17,6 +17,7 @@ avoid double-flagging (which would read as false positives).
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -50,7 +51,10 @@ class Finding:
 RuleFn = Callable[[ProductionRecord, ValidationRule], list[Finding]]
 RULE_REGISTRY: dict[str, RuleFn] = {}
 # Rules evaluated over the whole batch rather than a single record.
-BATCH_RULES: set[str] = {"SYSTEMATIC_HIGH_P", "STATISTICAL_OEE_OUTLIER", "PRODUCTION_RATE_OUTLIER"}
+BATCH_RULES: set[str] = {
+    "SYSTEMATIC_HIGH_P", "STATISTICAL_OEE_OUTLIER", "PRODUCTION_RATE_OUTLIER",
+    "DUPLICATE_RECORD",
+}
 
 
 def rule(code: str) -> Callable[[RuleFn], RuleFn]:
@@ -277,6 +281,23 @@ def invalid_shift(rec: ProductionRecord, cfg: ValidationRule) -> list[Finding]:
         return [Finding(cfg.default_severity, "Vardiya 1, 2 veya 3 olmalı.",
                         field_name="Vardiya", expected_value="1|2|3",
                         actual_value=str(rec.vardiya))]
+    return []
+
+
+# Data dictionary: İş Emri No = 10-digit number starting with "302".
+_JOB_ORDER_RE = re.compile(r"302\d{7}")
+
+
+@rule("JOB_ORDER_FORMAT")
+def job_order_format(rec: ProductionRecord, cfg: ValidationRule) -> list[Finding]:
+    jo = rec.is_emri_no
+    if jo is None:  # emptiness is MISSING_JOB_ORDER's concern
+        return []
+    if not _JOB_ORDER_RE.fullmatch(jo.strip()):
+        return [Finding(cfg.default_severity,
+                        "İş Emri No veri sözlüğü formatına uymuyor.",
+                        field_name="İş Emri No", expected_value="302 + 7 hane (10 haneli)",
+                        actual_value=jo)]
     return []
 
 

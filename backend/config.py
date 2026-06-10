@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # Mock API behaviour
     mock_api_key: str = "test-api-key-2025"
 
+    # Upload guard: reject CSV uploads larger than this (memory-exhaustion DoS).
+    # 50 MB comfortably covers the 60K-row scale-test file (~6 MB).
+    max_upload_mb: int = 50
+
     model_config = SettingsConfigDict(
         # Look for a .env in the repo root (one level above backend/) or CWD.
         env_file=(".env", "../.env"),

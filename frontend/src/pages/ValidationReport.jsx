@@ -38,15 +38,26 @@ export default function ValidationReport() {
   const { message } = App.useApp();
   const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
-  const [filters, setFilters] = useState({ severity: null, category: null, rule_code: null });
+  const [filters, setFilters] = useState({
+    severity: null,
+    category: null,
+    rule_code: null,
+    batch_id: null,
+  });
   const [data, setData] = useState({ items: [], total: 0 });
+  const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState({ open: false, id: null });
 
   useEffect(() => {
-    api.validationSummary().then((r) => setSummary(r.data));
+    api.listBatches().then((r) => setBatches(r.data));
   }, []);
+
+  // Summary (KPIs + pie + filter options) follows the selected batch.
+  useEffect(() => {
+    api.validationSummary({ batch_id: filters.batch_id }).then((r) => setSummary(r.data));
+  }, [filters.batch_id]);
 
   const load = () => {
     setLoading(true);
@@ -63,6 +74,10 @@ export default function ValidationReport() {
   const ruleOptions = (summary?.by_rule || []).map((r) => ({
     value: r.key,
     label: `${r.key} (${r.count})`,
+  }));
+  const batchOptions = batches.map((b) => ({
+    value: b.id,
+    label: `#${b.id} — ${b.filename}`,
   }));
 
   const setF = (patch) => {
@@ -124,6 +139,16 @@ export default function ValidationReport() {
         subtitle="Tespit edilen veri kalitesi sorunları — sınıflandırılmış ve gerekçeli"
         extra={
           <Space>
+            <Select
+              allowClear
+              showSearch
+              placeholder="Tüm yüklemeler"
+              style={{ width: 240 }}
+              options={batchOptions}
+              optionFilterProp="label"
+              value={filters.batch_id}
+              onChange={(v) => setF({ batch_id: v ?? null })}
+            />
             <Button icon={<SettingOutlined />} onClick={() => navigate("/settings")}>
               Kuralları Yönet
             </Button>

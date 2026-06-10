@@ -4,19 +4,73 @@ import {
   Button,
   Card,
   Col,
+  Popconfirm,
   Progress,
   Row,
+  Space,
   Statistic,
   Table,
   Upload,
 } from "antd";
-import { InboxOutlined } from "@ant-design/icons";
+import {
+  CloseOutlined,
+  DeleteOutlined,
+  InboxOutlined,
+  UploadOutlined,
+} from "@ant-design/icons";
 import dayjs from "dayjs";
 
 import api from "../api/client.js";
 import PageHeader from "../components/PageHeader.jsx";
 
 const { Dragger } = Upload;
+
+const PREVIEW_ROWS = 10;
+const PREVIEW_BYTES = 64 * 1024; // only the head of the file is read for preview
+
+// Minimal CSV line splitter for the preview (handles quoted fields).
+const splitCsvLine = (line) => {
+  const out = [];
+  let cur = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quoted) {
+      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else cur += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ",") { out.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+};
+
+// Read the first rows of the file client-side, before any upload happens.
+// UTF-8 is tried first; mojibake (�) falls back to Windows-1254 (the MES export encoding).
+const readPreview = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Dosya okunamadı."));
+    reader.onload = () => {
+      const truncated = file.size > PREVIEW_BYTES;
+      const decode = (enc) => {
+        let lines = new TextDecoder(enc).decode(reader.result).split(/\r?\n/);
+        if (truncated) lines = lines.slice(0, -1); // drop the cut-off last line
+        return lines.filter((l) => l.trim() !== "");
+      };
+      let lines = decode("utf-8");
+      if (lines.some((l) => l.includes("�"))) lines = decode("windows-1254");
+      if (lines.length === 0) return reject(new Error("Dosya boş görünüyor."));
+      resolve({
+        header: splitCsvLine(lines[0]),
+        rows: lines.slice(1, 1 + PREVIEW_ROWS).map(splitCsvLine),
+        truncated,
+      });
+    };
+    reader.readAsArrayBuffer(file.slice(0, PREVIEW_BYTES));
+  });
 
 export default function ImportData() {
   const { message, modal } = App.useApp();
@@ -25,6 +79,7 @@ export default function ImportData() {
   const [processing, setProcessing] = useState(null); // {phase, processed, total}
   const [result, setResult] = useState(null);
   const [batches, setBatches] = useState([]);
+  const [preview, setPreview] = useState(null); // {file, header, rows, truncated}
 
   const loadBatches = () => api.listBatches().then((r) => setBatches(r.data));
   useEffect(() => {
@@ -62,7 +117,20 @@ export default function ImportData() {
     tick();
   };
 
+  // §5.1: show the first rows and wait for explicit confirmation before uploading.
+  const handleSelect = async (file) => {
+    try {
+      const p = await readPreview(file);
+      setPreview({ file, ...p });
+      setResult(null);
+    } catch (err) {
+      message.error(err.message);
+    }
+    return false; // never let antd auto-upload
+  };
+
   const doUpload = async (file) => {
+    setPreview(null);
     setUploading(true);
     setPercent(0);
     setResult(null);
@@ -87,6 +155,17 @@ export default function ImportData() {
     return false; // prevent antd's default upload
   };
 
+  const handleDelete = async (batch) => {
+    try {
+      await api.deleteBatch(batch.id);
+      message.success(`"${batch.filename}" ve kayıtları silindi.`);
+      if (result?.id === batch.id) setResult(null);
+      loadBatches();
+    } catch (err) {
+      message.error(err.userMessage);
+    }
+  };
+
   const processPercent =
     processing && processing.total ? Math.round((processing.processed / processing.total) * 100) : 0;
 
@@ -101,6 +180,28 @@ export default function ImportData() {
       title: "Tarih",
       dataIndex: "created_at",
       render: (v) => dayjs(v).format("DD.MM.YYYY HH:mm"),
+    },
+    {
+      title: "",
+      key: "actions",
+      width: 60,
+      render: (_, row) => (
+        <Popconfirm
+          title="Yüklemeyi sil"
+          description={`"${row.filename}" ile gelen tüm kayıtlar ve validasyon sonuçları silinecek.`}
+          okText="Sil"
+          okButtonProps={{ danger: true }}
+          cancelText="Vazgeç"
+          onConfirm={() => handleDelete(row)}
+        >
+          <Button
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            disabled={row.status === "processing"}
+          />
+        </Popconfirm>
+      ),
     },
   ];
 
@@ -118,7 +219,7 @@ export default function ImportData() {
               accept=".csv"
               multiple={false}
               showUploadList={false}
-              beforeUpload={doUpload}
+              beforeUpload={handleSelect}
               disabled={uploading}
             >
               <p className="ant-upload-drag-icon">
@@ -126,9 +227,51 @@ export default function ImportData() {
               </p>
               <p className="ant-upload-text">CSV dosyasını buraya sürükleyin veya tıklayın</p>
               <p className="ant-upload-hint">
-                Windows-1254 / UTF-8 desteklenir. Aynı dosya tekrar yüklenirse uyarılırsınız.
+                Yüklemeden önce ilk {PREVIEW_ROWS} satır önizlenir. Windows-1254 / UTF-8
+                desteklenir. Aynı dosya tekrar yüklenirse uyarılırsınız.
               </p>
             </Dragger>
+            {preview && !uploading && (
+              <Card
+                size="small"
+                title={`Önizleme — ${preview.file.name} (ilk ${preview.rows.length} satır)`}
+                style={{ marginTop: 16 }}
+                extra={
+                  <Space>
+                    <Button icon={<CloseOutlined />} onClick={() => setPreview(null)}>
+                      Vazgeç
+                    </Button>
+                    <Button
+                      type="primary"
+                      icon={<UploadOutlined />}
+                      onClick={() => doUpload(preview.file)}
+                    >
+                      Yükle ve Doğrula
+                    </Button>
+                  </Space>
+                }
+              >
+                <Table
+                  size="small"
+                  rowKey="__k"
+                  scroll={{ x: "max-content" }}
+                  pagination={false}
+                  columns={preview.header.map((h, i) => ({
+                    title: h || `Kolon ${i + 1}`,
+                    dataIndex: String(i),
+                    ellipsis: true,
+                  }))}
+                  dataSource={preview.rows.map((r, k) => ({
+                    __k: k,
+                    ...Object.fromEntries(r.map((v, i) => [String(i), v])),
+                  }))}
+                />
+                <div style={{ color: "#8694a8", fontSize: 13, marginTop: 8 }}>
+                  {preview.header.length} kolon algılandı.
+                  {preview.truncated && " Önizleme dosyanın başından okunur; tamamı yüklemede işlenir."}
+                </div>
+              </Card>
+            )}
             {uploading && (
               <div style={{ marginTop: 16 }}>
                 {!processing ? (

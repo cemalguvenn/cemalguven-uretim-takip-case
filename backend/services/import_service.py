@@ -19,10 +19,10 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 import pandas as pd
-from sqlalchemy import insert, select
+from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import ImportBatch, ProductionRecord
+from models import AuditLog, ImportBatch, ProductionRecord, ValidationError
 
 _INSERT_CHUNK = 1000
 
@@ -49,6 +49,10 @@ class EmptyFileError(ImportError_):
 
 class ColumnCountError(ImportError_):
     pass
+
+
+class BatchInProgressError(ImportError_):
+    """Raised when deletion is attempted while the batch is still processing."""
 
 
 class DuplicateImportError(ImportError_):
@@ -239,6 +243,30 @@ async def create_batch_for_upload(session: AsyncSession, filename: str, raw: byt
     session.add(batch)
     await session.commit()
     return batch
+
+
+async def delete_batch(session: AsyncSession, batch_id: int) -> bool:
+    """Delete a batch and everything imported with it (records, validation
+    errors, audit entries). Returns False if the batch does not exist."""
+    batch = await session.get(ImportBatch, batch_id)
+    if batch is None:
+        return False
+    if batch.status == "processing":
+        raise BatchInProgressError("Bu yükleme hâlâ işleniyor; bitmeden silinemez.")
+
+    record_ids = select(ProductionRecord.id).where(
+        ProductionRecord.import_batch_id == batch_id
+    ).scalar_subquery()
+    await session.execute(delete(AuditLog).where(AuditLog.record_id.in_(record_ids)))
+    await session.execute(
+        delete(ValidationError).where(ValidationError.import_batch_id == batch_id)
+    )
+    await session.execute(
+        delete(ProductionRecord).where(ProductionRecord.import_batch_id == batch_id)
+    )
+    await session.delete(batch)
+    await session.commit()
+    return True
 
 
 async def process_import(batch_id: int, raw: bytes) -> None:

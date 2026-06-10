@@ -155,3 +155,74 @@ async def test_no_false_positive_on_clean_record(session, make_record):
         if c and fn(rec, c):
             triggered.append(code)
     assert triggered == [], f"clean record falsely triggered: {triggered}"
+
+
+# --------------------------------------------------------------------------- #
+# Format — job order (data dictionary: 302 + 7 digits)
+# --------------------------------------------------------------------------- #
+async def test_job_order_format(session, make_record):
+    c = await cfg(session, "JOB_ORDER_FORMAT")
+    fn = RULE_REGISTRY["JOB_ORDER_FORMAT"]
+    assert fn(make_record(is_emri_no="3025678325"), c) == []          # spec example
+    assert sev(fn(make_record(is_emri_no="9925678325"), c)) == {"warning"}  # wrong prefix
+    assert sev(fn(make_record(is_emri_no="302567"), c)) == {"warning"}      # too short
+    assert sev(fn(make_record(is_emri_no="302567832599"), c)) == {"warning"}  # too long
+    assert fn(make_record(is_emri_no=None), c) == []  # emptiness is MISSING_JOB_ORDER's job
+
+
+# --------------------------------------------------------------------------- #
+# Duplicates (batch-level)
+# --------------------------------------------------------------------------- #
+async def test_duplicate_record_id_flags_all_copies(session, make_record):
+    from datetime import date
+
+    from validation.engine import _duplicate_findings
+
+    c = await cfg(session, "DUPLICATE_RECORD")
+    rules = {"DUPLICATE_RECORD": c}
+    a = make_record(record_id=7, csv_row_number=2, tarih=date(2025, 11, 5))
+    b = make_record(record_id=7, csv_row_number=9, tarih=date(2025, 11, 6),
+                    is_emri_no="3020000001")
+    other = make_record(record_id=8, csv_row_number=3, tarih=date(2025, 11, 7),
+                        is_emri_no="3020000002")
+    a.id, b.id, other.id = 1, 2, 3
+
+    out = _duplicate_findings([a, b, other], rules)
+    assert set(out) == {1, 2}  # both copies flagged, the unique row untouched
+    finding = out[1][0][2]
+    assert finding.severity == "warning"
+    assert "9" in finding.message  # points at the twin's CSV line
+
+
+async def test_duplicate_business_key(session, make_record):
+    from datetime import date
+
+    from validation.engine import _duplicate_findings
+
+    c = await cfg(session, "DUPLICATE_RECORD")
+    rules = {"DUPLICATE_RECORD": c}
+    # Different record_id but identical work: same day/shift/station/job-order/product.
+    common = dict(tarih=date(2025, 11, 5), vardiya=2, is_istasyon_adi="IMM-4000-1",
+                  is_emri_no="3025678325", stok_adi="Part-A")
+    a = make_record(record_id=10, csv_row_number=4, **common)
+    b = make_record(record_id=11, csv_row_number=12, **common)
+    a.id, b.id = 1, 2
+
+    out = _duplicate_findings([a, b], rules)
+    assert set(out) == {1, 2}
+    assert out[2][0][2].field_name == "Tarih+Vardiya+İstasyon+İş Emri+Stok"
+
+
+async def test_duplicate_skips_incomplete_business_key(session, make_record):
+    from datetime import date
+
+    from validation.engine import _duplicate_findings
+
+    c = await cfg(session, "DUPLICATE_RECORD")
+    # Missing station → business key incomplete; MISSING_STATION owns that problem.
+    a = make_record(record_id=20, csv_row_number=5, tarih=date(2025, 11, 5),
+                    is_istasyon_adi=None)
+    b = make_record(record_id=21, csv_row_number=6, tarih=date(2025, 11, 5),
+                    is_istasyon_adi=None)
+    a.id, b.id = 1, 2
+    assert _duplicate_findings([a, b], {"DUPLICATE_RECORD": c}) == {}

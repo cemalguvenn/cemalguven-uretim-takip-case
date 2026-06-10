@@ -28,8 +28,10 @@ _EDITABLE_FIELDS = {
 
 def _apply_filters(stmt, *, tarih_start, tarih_end, vardiya, istasyon, stok,
                    oee_min, oee_max, statuses, only_problematic, hide_errors,
-                   include_hidden, search):
+                   include_hidden, search, batch_id=None):
     R = ProductionRecord
+    if batch_id is not None:
+        stmt = stmt.where(R.import_batch_id == batch_id)
     if tarih_start is not None:
         stmt = stmt.where(R.tarih >= tarih_start)
     if tarih_end is not None:
@@ -63,11 +65,13 @@ def _apply_filters(stmt, *, tarih_start, tarih_end, vardiya, istasyon, stok,
 async def list_records(session: AsyncSession, *, page=1, page_size=50, tarih_start=None,
                        tarih_end=None, vardiya=None, istasyon=None, stok=None,
                        oee_min=None, oee_max=None, statuses=None, only_problematic=False,
-                       hide_errors=False, include_hidden=False, search=None) -> tuple[list[RecordOut], int]:
+                       hide_errors=False, include_hidden=False, search=None,
+                       batch_id=None) -> tuple[list[RecordOut], int]:
     flt = dict(tarih_start=tarih_start, tarih_end=tarih_end, vardiya=vardiya,
                istasyon=istasyon, stok=stok, oee_min=oee_min, oee_max=oee_max,
                statuses=statuses, only_problematic=only_problematic,
-               hide_errors=hide_errors, include_hidden=include_hidden, search=search)
+               hide_errors=hide_errors, include_hidden=include_hidden, search=search,
+               batch_id=batch_id)
 
     total = await session.scalar(
         _apply_filters(select(func.count()).select_from(ProductionRecord), **flt)

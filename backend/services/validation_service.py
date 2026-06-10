@@ -10,27 +10,33 @@ from seed import reset_rules
 from validation.engine import validate_batch
 
 
-async def _grouped(session: AsyncSession, column) -> list[KeyCount]:
+async def _grouped(session: AsyncSession, column, conds=()) -> list[KeyCount]:
     rows = await session.execute(
-        select(column, func.count()).group_by(column).order_by(func.count().desc())
+        select(column, func.count()).where(*conds)
+        .group_by(column).order_by(func.count().desc())
     )
     return [KeyCount(key=str(k), count=c) for k, c in rows]
 
 
-async def summary(session: AsyncSession) -> ValidationSummaryOut:
-    total = await session.scalar(select(func.count()).select_from(ValidationError)) or 0
+async def summary(session: AsyncSession, *, batch_id: int | None = None) -> ValidationSummaryOut:
+    conds = [ValidationError.import_batch_id == batch_id] if batch_id is not None else []
+    total = await session.scalar(
+        select(func.count()).select_from(ValidationError).where(*conds)
+    ) or 0
     return ValidationSummaryOut(
         total=int(total),
-        by_severity=await _grouped(session, ValidationError.severity),
-        by_category=await _grouped(session, ValidationError.category),
-        by_rule=await _grouped(session, ValidationError.rule_code),
+        by_severity=await _grouped(session, ValidationError.severity, conds),
+        by_category=await _grouped(session, ValidationError.category, conds),
+        by_rule=await _grouped(session, ValidationError.rule_code, conds),
     )
 
 
 async def list_errors(session: AsyncSession, *, page=1, page_size=50, severity=None,
                       category=None, rule_code=None, field_name=None, record_id=None,
-                      is_resolved=None) -> tuple[list[ValidationError], int]:
+                      is_resolved=None, batch_id=None) -> tuple[list[ValidationError], int]:
     conds = []
+    if batch_id is not None:
+        conds.append(ValidationError.import_batch_id == batch_id)
     if severity:
         conds.append(ValidationError.severity == severity)
     if category:

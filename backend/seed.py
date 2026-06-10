@@ -97,6 +97,18 @@ RULE_CATALOG: list[dict] = [
     dict(rule_code="INVALID_SHIFT_VALUE", display_name="Geçersiz vardiya değeri", category="format",
          default_severity="error", warning_threshold=None, error_threshold=None,
          description="Vardiya 1, 2 veya 3 dışında bir değer."),
+    dict(rule_code="JOB_ORDER_FORMAT", display_name="İş Emri No format hatası", category="format",
+         default_severity="warning", warning_threshold=None, error_threshold=None,
+         description="İş Emri No, veri sözlüğündeki formata uymuyor "
+                     "(302 ile başlayan 10 haneli sayı, örn. 3025678325)."),
+
+    # --- Duplicate records (batch-level) ---
+    dict(rule_code="DUPLICATE_RECORD", display_name="Yinelenen kayıt", category="duplicate",
+         default_severity="warning", warning_threshold=None, error_threshold=None,
+         description="Aynı record_id veya aynı iş anahtarı (Tarih+Vardiya+İstasyon+İş Emri+Stok) "
+                     "birden fazla satırda görünüyor — üretim çift sayılır. Tüm kopyalar, "
+                     "ikizlerinin CSV satır numaralarıyla işaretlenir; hangisinin kalacağına "
+                     "operatör karar verir."),
 
     # --- Domain logic ---
     dict(rule_code="ZERO_PROD_LONG_RUN", display_name="Uzun çalışma, sıfır üretim", category="domain_logic",

@@ -39,6 +39,7 @@ async def list_records(
     hide_errors: bool = False,
     include_hidden: bool = False,
     search: str | None = None,
+    batch_id: int | None = None,
     session: AsyncSession = Depends(get_session),
 ):
     items, total = await record_service.list_records(
@@ -46,7 +47,7 @@ async def list_records(
         tarih_end=tarih_end, vardiya=vardiya, istasyon=istasyon, stok=stok,
         oee_min=oee_min, oee_max=oee_max, statuses=status,
         only_problematic=only_problematic, hide_errors=hide_errors,
-        include_hidden=include_hidden, search=search,
+        include_hidden=include_hidden, search=search, batch_id=batch_id,
     )
     return PaginatedRecords(items=items, total=total, page=page, page_size=page_size)
 

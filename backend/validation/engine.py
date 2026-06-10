@@ -185,12 +185,65 @@ def _statistical_findings(
     return out
 
 
+def _duplicate_findings(
+    records: list[ProductionRecord], rules: dict[str, ValidationRule]
+) -> dict[int, list[tuple[str, ValidationRule, Finding]]]:
+    """DUPLICATE_RECORD: two complementary uniqueness checks.
+
+    1. record_id — the MES technical key; the same id appearing twice means the
+       export duplicated a row.
+    2. business key (Tarih, Vardiya, İstasyon, İş Emri No, Stok) — what makes a
+       record unique semantically; the same work reported twice would double-count
+       production in metrics and in the day×shift submission.
+
+    Every member of a duplicate group is flagged (with the CSV line numbers of
+    its twins) so the operator decides which copy to keep.
+    """
+    out: dict[int, list[tuple[str, ValidationRule, Finding]]] = defaultdict(list)
+    cfg = rules.get("DUPLICATE_RECORD")
+    if cfg is None:
+        return out
+
+    by_record_id: dict[int, list[ProductionRecord]] = defaultdict(list)
+    by_business_key: dict[tuple, list[ProductionRecord]] = defaultdict(list)
+    for rec in records:
+        if rec.record_id is not None:
+            by_record_id[rec.record_id].append(rec)
+        key = (rec.tarih, rec.vardiya, rec.is_istasyon_adi, rec.is_emri_no, rec.stok_adi)
+        if all(part is not None for part in key):
+            by_business_key[key].append(rec)
+
+    def flag(members: list[ProductionRecord], field: str, what: str) -> None:
+        for m in members:
+            twins = ", ".join(str(t.csv_row_number) for t in members if t.id != m.id)
+            out[m.id].append((
+                "DUPLICATE_RECORD", cfg,
+                Finding(cfg.default_severity,
+                        f"{what} — aynı kayıt {len(members)} kez görünüyor "
+                        f"(diğer CSV satırları: {twins}).",
+                        field_name=field, expected_value="tekil kayıt",
+                        actual_value=f"{len(members)} kopya"),
+            ))
+
+    flagged_ids: set[int] = set()
+    for members in by_record_id.values():
+        if len(members) > 1:
+            flag(members, "record_id", "Yinelenen record_id")
+            flagged_ids.update(m.id for m in members)
+    for members in by_business_key.values():
+        # Skip groups already reported via record_id to avoid double-flagging.
+        if len(members) > 1 and not all(m.id in flagged_ids for m in members):
+            flag(members, "Tarih+Vardiya+İstasyon+İş Emri+Stok",
+                 "Yinelenen iş kaydı (aynı gün/vardiya/istasyon/iş emri/ürün)")
+    return out
+
+
 def _batch_level_findings(
     records: list[ProductionRecord], rules: dict[str, ValidationRule]
 ) -> dict[int, list[tuple[str, ValidationRule, Finding]]]:
-    """Merge all whole-batch passes (systematic + statistical) by record id."""
+    """Merge all whole-batch passes (systematic + statistical + duplicate) by record id."""
     merged: dict[int, list[tuple[str, ValidationRule, Finding]]] = defaultdict(list)
-    for pass_fn in (_systematic_findings, _statistical_findings):
+    for pass_fn in (_systematic_findings, _statistical_findings, _duplicate_findings):
         for rec_id, triples in pass_fn(records, rules).items():
             merged[rec_id].extend(triples)
     return merged
