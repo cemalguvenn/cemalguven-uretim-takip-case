@@ -22,8 +22,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from models import ProductionRecord, ValidationRule
+from validation.metadata import CUSTOM_RULE_FIELDS
 
 SENTINEL = -10
+# TR labels for fields a custom_range rule can target (for finding messages).
+_FIELD_LABELS = dict(CUSTOM_RULE_FIELDS)
 # Numeric fields scanned for the MES sentinel placeholder.
 _NUMERIC_FIELDS = [
     ("availability", "A"), ("performance", "P"), ("quality", "Q"), ("oee", "OEE"),
@@ -324,3 +327,42 @@ def zero_prod_short_run(rec: ProductionRecord, cfg: ValidationRule) -> list[Find
                         "Kısa çalışma süresinde üretim sıfır.",
                         field_name="Üretilen Miktar", actual_value="0")]
     return []
+
+
+# --------------------------------------------------------------------------- #
+# User-defined (custom_range) rules — one generic function, parameterised per
+# DB row. NOT in RULE_REGISTRY (rule_code is user-chosen); the engine dispatches
+# any rule with rule_type == "custom_range" here.
+# --------------------------------------------------------------------------- #
+def custom_range_check(rec: ProductionRecord, cfg: ValidationRule) -> list[Finding]:
+    """Flag when `cfg.target_field` crosses a configured bound.
+
+    comparison="max" → value ABOVE the bound is bad; "min" → BELOW is bad.
+    Two thresholds make it two-tier (warning_threshold→warning, error_threshold→
+    error). With a single threshold set, that bound uses cfg.default_severity.
+    """
+    field = cfg.target_field
+    if not field:
+        return []
+    v = getattr(rec, field, None)
+    if not _present(v):
+        return []
+    comp = cfg.comparison or "max"
+    warn, err = cfg.warning_threshold, cfg.error_threshold
+    label = _FIELD_LABELS.get(field, field)
+
+    def crosses(bound: float | None) -> bool:
+        if bound is None:
+            return False
+        return v > bound if comp == "max" else v < bound
+
+    if crosses(err):
+        sev, bound = "error", err
+    elif crosses(warn):
+        sev = "warning" if err is not None else cfg.default_severity
+        bound = warn
+    else:
+        return []
+    op = "<=" if comp == "max" else ">="
+    return [Finding(sev, f"{label} özel sınır dışı.", field_name=label,
+                    expected_value=f"{op} {bound:g}", actual_value=str(v))]

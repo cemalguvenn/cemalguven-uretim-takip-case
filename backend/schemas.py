@@ -157,6 +157,10 @@ class SummaryOut(BaseModel):
     defect_rate: float | None
     countable_records: int
     status_counts: dict[str, int]
+    # Defect-bearing rows excluded from the metrics above (status not countable
+    # or hidden) — surfaced so "0 fire" isn't misread as "no defects".
+    quarantined_defect_records: int = 0
+    quarantined_defect_units: int = 0
 
 
 class TrendPoint(BaseModel):
@@ -224,6 +228,22 @@ class ValidationRuleOut(BaseModel):
     is_active: bool
     warning_threshold: float | None
     error_threshold: float | None
+    rule_type: str
+    target_field: str | None
+    comparison: str | None
+    threshold_kind: str  # "none" | "single" | "dual" — drives the Settings UI
+
+
+class ValidationRuleCreate(BaseModel):
+    """A user-defined custom_range rule (the only creatable type)."""
+    display_name: str
+    description: str | None = None
+    default_severity: str = "warning"
+    target_field: str           # one of validation.metadata.CUSTOM_RULE_FIELDS
+    comparison: str             # "max" (above is bad) | "min" (below is bad)
+    warning_threshold: float | None = None
+    error_threshold: float | None = None
+    is_active: bool = True
 
 
 class ValidationRuleUpdate(BaseModel):
@@ -231,6 +251,11 @@ class ValidationRuleUpdate(BaseModel):
     default_severity: str | None = None
     warning_threshold: float | None = None
     error_threshold: float | None = None
+    # Structural fields — applied only to custom_range rules.
+    display_name: str | None = None
+    description: str | None = None
+    target_field: str | None = None
+    comparison: str | None = None
 
 
 # --------------------------------------------------------------------------- #

@@ -15,7 +15,13 @@ from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import ProductionRecord, ValidationError, ValidationRule
-from validation.rules import BATCH_RULES, RULE_REGISTRY, Finding, _present
+from validation.rules import (
+    BATCH_RULES,
+    RULE_REGISTRY,
+    Finding,
+    _present,
+    custom_range_check,
+)
 
 # Statuses that user actions own — full-batch validation must not clobber them.
 _PROTECTED = {"rejected", "submitted"}
@@ -46,7 +52,11 @@ def _run_record_rules(
             continue
         fn = RULE_REGISTRY.get(code)
         if fn is None:
-            continue
+            # User-defined rules aren't in the registry — run the generic checker.
+            if cfg.rule_type == "custom_range":
+                fn = custom_range_check
+            else:
+                continue
         for finding in fn(rec, cfg):
             results.append((code, cfg, finding))
     return results

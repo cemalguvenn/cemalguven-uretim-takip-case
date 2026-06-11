@@ -22,13 +22,6 @@ import { oeeColor } from "../utils/format.js";
 
 const { RangePicker } = DatePicker;
 
-const tip = {
-  background: "#11161f",
-  border: "1px solid #2b3346",
-  borderRadius: 8,
-  color: "#e6e9ef",
-};
-
 export default function LossAnalysis() {
   const [range, setRange] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -130,8 +123,7 @@ export default function LossAnalysis() {
                     <XAxis dataKey="name" stroke={CHART_COLORS.axis} tick={{ fontSize: 11 }} angle={-12} textAnchor="end" interval={0} height={50} />
                     <YAxis stroke={CHART_COLORS.axis} tick={{ fontSize: 12 }} domain={[0, 100]} unit="%" />
                     <Tooltip
-                      contentStyle={tip}
-                      formatter={(v, n) => (n === "value" ? [`${Number(v).toFixed(1)}%`, "Değer"] : null)}
+                      content={<ChartTooltip hideKeys={["base"]} percentKeys={["value"]} />}
                       cursor={{ fill: "rgba(255,255,255,0.04)" }}
                     />
                     <Bar dataKey="base" stackId="w">
@@ -139,7 +131,7 @@ export default function LossAnalysis() {
                         <Cell key={`b${i}`} fill="transparent" />
                       ))}
                     </Bar>
-                    <Bar dataKey="value" stackId="w" radius={[6, 6, 0, 0]}>
+                    <Bar dataKey="value" name="Değer" stackId="w" radius={[6, 6, 0, 0]}>
                       {waterfall.map((s, i) => (
                         <Cell key={`v${i}`} fill={s.fill} />
                       ))}

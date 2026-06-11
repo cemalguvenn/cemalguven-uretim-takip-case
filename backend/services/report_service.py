@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import ProductionRecord
@@ -55,6 +55,25 @@ async def summary(session: AsyncSession, start=None, end=None) -> SummaryOut:
         .where(ProductionRecord.is_hidden.is_(True))
     ) or 0
 
+    # Defect-bearing rows kept OUT of the metrics above (status not countable or
+    # hidden) — e.g. rows rejected by DEFECT_EXCEEDS_PRODUCTION. Surfaced so the
+    # UI can show that "0 fire" means "quarantined", not "none".
+    quar_stmt = select(
+        func.count(),
+        func.coalesce(func.sum(ProductionRecord.hatali_uretilen), 0),
+    ).where(
+        ProductionRecord.hatali_uretilen > 0,
+        or_(
+            ProductionRecord.status.notin_(COUNTABLE_STATUSES),
+            ProductionRecord.is_hidden.is_(True),
+        ),
+    )
+    if start is not None:
+        quar_stmt = quar_stmt.where(ProductionRecord.tarih >= start)
+    if end is not None:
+        quar_stmt = quar_stmt.where(ProductionRecord.tarih <= end)
+    quar_records, quar_units = (await session.execute(quar_stmt)).one()
+
     return SummaryOut(
         avg_oee=_weighted_oee(rows),
         total_production=total_prod,
@@ -63,6 +82,8 @@ async def summary(session: AsyncSession, start=None, end=None) -> SummaryOut:
         defect_rate=round(total_defect / total_prod * 100, 2) if total_prod else None,
         countable_records=len(rows),
         status_counts=dict(status_counts),
+        quarantined_defect_records=int(quar_records or 0),
+        quarantined_defect_units=int(quar_units or 0),
     )
 
 

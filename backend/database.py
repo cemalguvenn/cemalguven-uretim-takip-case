@@ -28,10 +28,32 @@ def _sqlite_pragmas(dbapi_conn, _record):
     cur.close()
 
 
+def _migrate_validation_rules(sync_conn) -> None:
+    """Add columns introduced after the table was first created.
+
+    `create_all` only creates missing tables, never new columns, so an existing
+    `production.db` needs a lightweight ALTER. Idempotent: each column is added
+    only if absent, so it's safe to run on every startup.
+    """
+    from sqlalchemy import inspect
+
+    cols = {c["name"] for c in inspect(sync_conn).get_columns("validation_rules")}
+    adds = {
+        "rule_type": "ALTER TABLE validation_rules "
+                     "ADD COLUMN rule_type VARCHAR NOT NULL DEFAULT 'builtin'",
+        "target_field": "ALTER TABLE validation_rules ADD COLUMN target_field VARCHAR",
+        "comparison": "ALTER TABLE validation_rules ADD COLUMN comparison VARCHAR",
+    }
+    for name, ddl in adds.items():
+        if name not in cols:
+            sync_conn.exec_driver_sql(ddl)
+
+
 async def init_db() -> None:
-    """Create all tables if they do not exist."""
+    """Create all tables if they do not exist, then apply column migrations."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_migrate_validation_rules)
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

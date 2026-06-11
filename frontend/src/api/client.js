@@ -73,7 +73,9 @@ export const api = {
 
   // Settings (rules)
   listRules: () => http.get("/api/settings/validation-rules"),
+  createRule: (body) => http.post("/api/settings/validation-rules", body),
   updateRule: (id, body) => http.put(`/api/settings/validation-rules/${id}`, body),
+  deleteRule: (id) => http.delete(`/api/settings/validation-rules/${id}`),
   resetRules: () => http.post("/api/settings/validation-rules/reset"),
 
   // Sync

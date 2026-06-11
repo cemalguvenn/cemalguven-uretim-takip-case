@@ -102,7 +102,7 @@ export default function Dashboard() {
     rejected: "#6b7280",
   };
 
-  const kpi = (title, value, suffix, icon, color) => (
+  const kpi = (title, value, suffix, icon, color, footer = null) => (
     <Card className="kpi-card" styles={{ body: { padding: "18px 20px" } }}>
       <Statistic
         title={
@@ -114,8 +114,25 @@ export default function Dashboard() {
         suffix={suffix}
         valueStyle={{ color, fontWeight: 600 }}
       />
+      {footer}
     </Card>
   );
+
+  // Defect rows excluded from metrics (defect > production) — surfaced so "0
+  // fire" isn't misread as "no defects".
+  const quarUnits = summary?.quarantined_defect_units || 0;
+  const fireFooter =
+    quarUnits > 0 ? (
+      <AntTooltip title="Hatalı üretim > toplam üretim olduğu için karantinada — düzeltildiğinde metriklere dahil olur.">
+        <div
+          onClick={() => navigate("/records?status=error")}
+          style={{ marginTop: 6, fontSize: 12, color: "#f59e0b", cursor: "pointer" }}
+        >
+          +{fmtNum(quarUnits)} fire · {fmtNum(summary.quarantined_defect_records)} kayıt
+          karantinada
+        </div>
+      </AntTooltip>
+    ) : null;
 
   return (
     <Spin spinning={loading}>
@@ -139,7 +156,7 @@ export default function Dashboard() {
           {kpi("Toplam Üretim", fmtNum(summary?.total_production), "adet", <InboxOutlined />, "#e6e9ef")}
         </Col>
         <Col xs={24} sm={12} lg={5}>
-          {kpi("Toplam Fire", fmtNum(summary?.total_defect), "adet", <WarningOutlined />, "#f59e0b")}
+          {kpi("Toplam Fire", fmtNum(summary?.total_defect), "adet", <WarningOutlined />, "#f59e0b", fireFooter)}
         </Col>
         <Col xs={24} sm={12} lg={5}>
           {kpi(

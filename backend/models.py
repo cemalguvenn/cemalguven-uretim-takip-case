@@ -116,10 +116,25 @@ class ValidationRule(Base):
     warning_threshold: Mapped[float | None] = mapped_column(Float)
     error_threshold: Mapped[float | None] = mapped_column(Float)
 
+    # "builtin" (code-backed) or "custom_range" (user-defined, generic engine fn).
+    rule_type: Mapped[str] = mapped_column(
+        String, nullable=False, default="builtin", server_default="builtin"
+    )
+    # Custom rules only: which numeric field to check and how ("max" / "min").
+    target_field: Mapped[str | None] = mapped_column(String)
+    comparison: Mapped[str | None] = mapped_column(String)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+    @property
+    def threshold_kind(self) -> str:
+        """Which threshold inputs are meaningful for this rule (for the UI)."""
+        from validation.metadata import threshold_kind_for
+
+        return threshold_kind_for(self.rule_code, self.rule_type)
 
 
 class AuditLog(Base):
