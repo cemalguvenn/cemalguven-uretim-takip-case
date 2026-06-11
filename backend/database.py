@@ -21,10 +21,22 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSe
 
 @event.listens_for(engine.sync_engine, "connect")
 def _sqlite_pragmas(dbapi_conn, _record):
-    """WAL lets a background import write while the UI keeps polling (reads)."""
+    """Per-connection SQLite hardening for this app's concurrency model.
+
+    - journal_mode=WAL  : a background import can write while the UI keeps
+      polling (readers never block the writer, and vice-versa).
+    - busy_timeout=5000 : WAL still serialises *writers*, so a second writer
+      (scheduler auto-sync, a UI correction) waits up to 5s for the lock
+      instead of failing immediately with "database is locked".
+    - foreign_keys=ON   : SQLite ignores declared FK constraints unless asked;
+      enable referential integrity (every delete path clears children first).
+    - synchronous=NORMAL: the durable + fast pairing recommended with WAL.
+    """
     cur = dbapi_conn.cursor()
     cur.execute("PRAGMA journal_mode=WAL")
     cur.execute("PRAGMA synchronous=NORMAL")
+    cur.execute("PRAGMA busy_timeout=5000")
+    cur.execute("PRAGMA foreign_keys=ON")
     cur.close()
 
 
@@ -57,6 +69,14 @@ async def init_db() -> None:
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency that yields a scoped async session."""
+    """FastAPI dependency that yields a scoped async session.
+
+    Rolls back on any unhandled error so a failed request never returns a
+    connection to the pool mid-transaction; the context manager always closes.
+    """
     async with SessionLocal() as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
